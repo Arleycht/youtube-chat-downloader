@@ -41,16 +41,15 @@ class ChatAction:
 
 
 class Chat:
-    def __init__(self, stream_url: str):
+    def __init__(self, stream_url: str, use_top_chat=False):
         response = requests.get(stream_url)
         response.raise_for_status()
 
         data = response.text
-        options = get_options_from_live_page(data)
+        options = get_options_from_live_page(data, use_top_chat)
 
         self.history = []
         self.options = options
-        self.dirty = True
 
     def _raw_fetch(self) -> list[Any]:
         """
@@ -102,7 +101,27 @@ def get_timestamp_usec(raw_entry):
     )
 
 
-def get_options_from_live_page(data: str) -> ChatOptions:
+def _find_key(obj, target_key):
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            if key == target_key:
+                return value
+
+            result = _find_key(value, target_key)
+
+            if result is not None:
+                return result
+    elif isinstance(obj, list):
+        for item in obj:
+            result = _find_key(item, target_key)
+
+            if result is not None:
+                return result
+
+    return None
+
+
+def get_options_from_live_page(data: str, use_top_chat=False) -> ChatOptions:
     # Get live ID
     id_match = re.search(
         r'<link rel="canonical" href="https://www.youtube.com/watch\?v=(.+?)">', data
@@ -133,11 +152,36 @@ def get_options_from_live_page(data: str) -> ChatOptions:
     client_version = ver_match.group(1)
 
     # Get continuation
-    continuation_match = re.search(r'"continuation":\s*"(.+?)"', data)
-    if not continuation_match:
-        raise ValueError("Continuation was not found")
 
-    continuation = continuation_match.group(1)
+    continuation_match = re.search(
+        r'(window["ytInitialData"]|var ytInitialData) = (.+?);</script>', data
+    )
+    continuation = None
+
+    if not continuation_match:
+        raise ValueError("Continuation initialization JSON not found")
+
+    continuation_match = json.loads(continuation_match.group(2))
+
+    try:
+        continuation_match = _find_key(continuation_match, "viewSelector")
+        continuation_match = continuation_match["sortFilterSubMenuRenderer"][
+            "subMenuItems"
+        ]
+
+        if use_top_chat:
+            continuation_match = continuation_match[0]
+        else:
+            continuation_match = continuation_match[1]
+
+        continuation = continuation_match["continuation"]["reloadContinuationData"][
+            "continuation"
+        ]
+    except KeyError:
+        pass
+
+    if not continuation:
+        raise ValueError("Continuation was not found")
 
     options = ChatOptions()
     options.live_id = live_id

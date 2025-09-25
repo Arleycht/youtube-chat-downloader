@@ -52,10 +52,22 @@ def main():
     parser.add_argument(
         "-o", "--output", help="Output file name (default: <live_id>.json)"
     )
+    parser.add_argument(
+        "-c",
+        "--chat",
+        choices=["top", "live"],
+        default="live",
+        help="Chat type: 'top' for top chat, 'live' for live chat (default: live)",
+    )
 
     args = parser.parse_args()
 
-    chat = ytc.Chat(args.url)
+    if args.chat == "top":
+        print("Using Top chat")
+    else:
+        print("Using live chat")
+
+    chat = ytc.Chat(args.url, args.chat == "top")
 
     output_path = args.output if args.output else f"{chat.options.live_id}.json"
 
